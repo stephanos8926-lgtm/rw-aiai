@@ -47,14 +47,24 @@ BACKUP_HOST = os.environ.get("RWA_HOST", "srv1")
 
 def _load_restic_key():
     """Load restic password into env if available."""
-    for path in [Path.home() / ".config" / "vdrive" / "backup-key",
-                 Path("/root/vdrive-backup-key")]:
-        if path.exists():
-            try:
-                os.environ.setdefault("RESTIC_PASSWORD", path.read_text().strip())
-                return
-            except PermissionError:
-                continue
+    # Path.exists() throws on permission-denied /root. Use os.access instead.
+    candidates = [
+        (Path.home() / ".config" / "vdrive" / "backup-key"),
+    ]
+    # Try /root only if we can access it
+    root_key = Path("/root/vdrive-backup-key")
+    try:
+        if root_key.exists():
+            candidates.append(root_key)
+    except PermissionError:
+        pass
+
+    for path in candidates:
+        try:
+            os.environ.setdefault("RESTIC_PASSWORD", path.read_text().strip())
+            return
+        except (PermissionError, OSError, FileNotFoundError):
+            continue
 
 _load_restic_key()
 
