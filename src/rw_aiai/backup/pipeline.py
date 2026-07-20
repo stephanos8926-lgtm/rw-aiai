@@ -142,8 +142,9 @@ def node_backup_vm(state: PipelineState, vm_name: str) -> PipelineState:
     t0 = time.monotonic()
 
     try:
+        status = "ok"
         if backup_type == "incremental":
-            _backup_incremental(vm_name, vm_cfg, cfg)
+            status = _backup_incremental(vm_name, vm_cfg, cfg)
         elif backup_type == "snapshot":
             _backup_snapshot(vm_name, vm_cfg, cfg)
         else:
@@ -153,8 +154,8 @@ def node_backup_vm(state: PipelineState, vm_name: str) -> PipelineState:
         entry = AuditEntry(
             vm_name=vm_name,
             backup_type=backup_type,
-            status="ok",
-            message=f"Backup completed in {duration:.1f}s",
+            status=status,
+            message=f"Backup completed in {duration:.1f}s" if status == "ok" else f"Backup completed with warnings ({status})",
             started_at=started,
             duration_seconds=duration,
         )
@@ -175,8 +176,10 @@ def node_backup_vm(state: PipelineState, vm_name: str) -> PipelineState:
     return state
 
 
-def _backup_incremental(vm_name: str, vm_cfg: dict, cfg: dict) -> None:
-    """Incremental backup via restic over SSH."""
+def _backup_incremental(vm_name: str, vm_cfg: dict, cfg: dict) -> str:
+    """Incremental backup via restic over SSH.
+    Returns 'ok' or 'warning'.
+    """
     backup_root = cfg["backup_root"]
     repo = f"{backup_root}/{vm_name}"
     host = vm_cfg["host"]
@@ -191,17 +194,28 @@ def _backup_incremental(vm_name: str, vm_cfg: dict, cfg: dict) -> None:
     try:
         # Run backup (init is handled by the vdrive provision script)
         result = _run_cmd(
-            ["restic", "-r", repo, "--verbose", "backup", "--exclude-caches"] + paths,
+            ["restic", "-r", repo, "--verbose", "backup", "--exclude-caches",
+             "--exclude", "/etc/credstore", "--exclude", "/etc/credstore.encrypted",
+             "--exclude", "/etc/ssl/private"] + paths,
             env=env,
             timeout=3600,
         )
         if result.returncode != 0:
-            raise RuntimeError(f"restic backup failed: {result.stderr[:500]}")
+            # Permission-denied partial backups are common — treat as warning
+            if result.returncode == 1:
+                logger.warning(
+                    "restic backup for %s completed with warnings:\n%s",
+                    vm_name, result.stderr[:300],
+                )
+                return "warning"
+            else:
+                raise RuntimeError(f"restic backup failed: {result.stderr[:500]}")
     finally:
         # Post-hook
         post = vm_cfg.get("post_hook")
         if post:
             _run_cmd(["ssh", host, post], timeout=120)
+    return "ok"
 
 
 def _backup_snapshot(vm_name: str, vm_cfg: dict, cfg: dict) -> None:
@@ -339,6 +353,7 @@ def build_pipeline(config: dict) -> StateGraph:
     def route_from_check(state: PipelineState) -> Literal["escalate", "__end__"]:
         if state["pipeline_status"] == "error":
             return "escalate"
+        # Warnings are logged but don't escalate
         return "__end__"
 
     workflow.add_conditional_edges("check_audit", route_from_check)
