@@ -1,1 +1,2 @@
-"""rw_aiai.iac — Infrastructure-as-Code drift detection + reflection."""
+"""rw_aiai — RapidWebs Automated Infrastructure AI Agent pipeline and toolkit."""
+
