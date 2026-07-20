@@ -91,9 +91,9 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _run_cmd(cmd: list[str], timeout: int = 600) -> subprocess.CompletedProcess:
-    """Run a shell command and return the result."""
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+def _run_cmd(cmd: list[str], timeout: int = 600, **kwargs) -> subprocess.CompletedProcess:
+    """Run a command and return the result."""
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, **kwargs)
 
 
 def _ensure_backup_root(path: str) -> Path:
@@ -192,6 +192,7 @@ def _backup_incremental(vm_name: str, vm_cfg: dict, cfg: dict) -> None:
         # Run backup (init is handled by the vdrive provision script)
         result = _run_cmd(
             ["restic", "-r", repo, "--verbose", "backup", "--exclude-caches"] + paths,
+            env=env,
             timeout=3600,
         )
         if result.returncode != 0:
