@@ -88,7 +88,7 @@ def _load_backup_config() -> dict:
 def _restic_cmd(host: str, vm: str, action: str, *args: str) -> list[str]:
     """Build a restic command — runs locally or via SSH."""
     repo = f"/mnt/vdrive/backups/{vm}"
-    pw_cmd = "export RESTIC_PASSWORD=$(sudo cat /root/vdrive-backup-key 2>/dev/null || echo '')"
+    pw_cmd = "export RESTIC_PASSWORD=$(cat ~/.config/vdrive/backup-key 2>/dev/null || sudo cat /root/vdrive-backup-key 2>/dev/null || echo '')"
     if host and host != "local":
         cmd = f"{pw_cmd} && restic -r {repo} {action} " + " ".join(shq(a) for a in args)
         return ["ssh", host, cmd]

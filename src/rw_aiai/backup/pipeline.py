@@ -104,13 +104,19 @@ def _ensure_backup_root(path: str) -> Path:
 
 def _restic_env(repo: str) -> dict:
     """Build environment dict with restic password for a given repo."""
-    key_file = Path("/root/vdrive-backup-key")
-    if key_file.exists():
-        password = key_file.read_text().strip()
-    else:
-        # Fallback: try user home
-        key_file = Path.home() / ".config/vdrive/backup-key"
-        password = key_file.read_text().strip() if key_file.exists() else ""
+    # Check sysop-accessible location first, then root
+    key_paths = [
+        Path.home() / ".config" / "vdrive" / "backup-key",
+        Path("/root/vdrive-backup-key"),
+    ]
+    password = os.environ.get("RESTIC_PASSWORD", "")
+    for kp in key_paths:
+        if kp.exists():
+            try:
+                password = kp.read_text().strip()
+                break
+            except PermissionError:
+                continue
     return {**os.environ, "RESTIC_PASSWORD": password}
 
 
