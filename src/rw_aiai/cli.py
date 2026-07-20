@@ -43,6 +43,22 @@ ANSIBLE_DIR = PROJECT_ROOT / "ansible"
 BACKUP_CONFIG = PROJECT_ROOT / "backup" / "config.yml"
 BACKUP_HOST = os.environ.get("RWA_HOST", "srv1")
 
+# ─── Restic Key ──────────────────────────────────────────────────────────────
+
+def _load_restic_key():
+    """Load restic password into env if available."""
+    for path in [Path.home() / ".config" / "vdrive" / "backup-key",
+                 Path("/root/vdrive-backup-key")]:
+        if path.exists():
+            try:
+                os.environ.setdefault("RESTIC_PASSWORD", path.read_text().strip())
+                return
+            except PermissionError:
+                continue
+
+_load_restic_key()
+
+
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
 
@@ -88,16 +104,11 @@ def _load_backup_config() -> dict:
 def _restic_cmd(host: str, vm: str, action: str, *args: str) -> list[str]:
     """Build a restic command — runs locally or via SSH."""
     repo = f"/mnt/vdrive/backups/{vm}"
-    pw_cmd = "export RESTIC_PASSWORD=$(cat ~/.config/vdrive/backup-key 2>/dev/null || sudo cat /root/vdrive-backup-key 2>/dev/null || echo '')"
     if host and host != "local":
+        pw_cmd = "export RESTIC_PASSWORD=$(cat ~/.config/vdrive/backup-key 2>/dev/null || sudo cat /root/vdrive-backup-key 2>/dev/null || echo '')"
         cmd = f"{pw_cmd} && restic -r {repo} {action} " + " ".join(shq(a) for a in args)
         return ["ssh", host, cmd]
-    else:
-        env = {**os.environ}
-        key = Path("/root/vdrive-backup-key")
-        if key.exists():
-            env["RESTIC_PASSWORD"] = key.read_text().strip()
-        return ["restic", "-r", repo, action, *args]
+    return ["restic", "-r", repo, action, *args]
 
 
 def shq(s: str) -> str:
