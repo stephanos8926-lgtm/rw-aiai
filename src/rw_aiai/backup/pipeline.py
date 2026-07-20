@@ -200,12 +200,12 @@ def _backup_incremental(vm_name: str, vm_cfg: dict, cfg: dict) -> str:
             env=env,
             timeout=3600,
         )
-        if result.returncode != 0:
+        if result.returncode not in (0,):
             # Permission-denied partial backups are common — treat as warning
-            if result.returncode == 1:
+            if result.returncode in (1, 3):  # 3 = restic warning (some files unreadable)
                 logger.warning(
-                    "restic backup for %s completed with warnings:\n%s",
-                    vm_name, result.stderr[:300],
+                    "restic backup for %s completed with warnings (exit %d):\n%s",
+                    vm_name, result.returncode, result.stderr[:300],
                 )
                 return "warning"
             else:
