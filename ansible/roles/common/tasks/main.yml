@@ -1,0 +1,66 @@
+---
+# Common baseline for ALL RapidWebs VMs
+- name: Set timezone to UTC
+  timezone:
+    name: UTC
+
+- name: Install base packages
+  apt:
+    name:
+      - htop
+      - iotop
+      - btop
+      - jq
+      - git
+      - curl
+      - wget
+      - unzip
+      - tmux
+      - zsh
+      - bat
+      - eza
+      - fzf
+      - ripgrep
+      - rsync
+      - restic
+      - rclone
+    state: present
+    update_cache: yes
+
+- name: Create sysop user ssh config directory
+  file:
+    path: ~sysop/.ssh
+    state: directory
+    mode: "0700"
+    owner: sysop
+    group: sysop
+
+- name: Deploy authorized_keys
+  authorized_key:
+    user: sysop
+    key: "{{ lookup('file', '~sysop/.ssh/id_ed25519.pub') | default('', true) }}"
+    state: present
+
+- name: Disable SSH password auth
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "^#?PasswordAuthentication"
+    line: "PasswordAuthentication no"
+  notify: restart sshd
+
+- name: Ensure .local/bin on PATH
+  file:
+    path: ~sysop/.local/bin
+    state: directory
+    mode: "0755"
+    owner: sysop
+    group: sysop
+
+- name: Deploy system tuning
+  sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    state: present
+  loop:
+    - {key: vm.swappiness, value: "10"}
+    - {key: fs.inotify.max_user_watches, value: "65536"}

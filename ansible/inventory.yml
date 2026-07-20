@@ -1,0 +1,33 @@
+# ─── Hosts ─────────────────────────────────────────────────────────────────────
+
+all:
+  children:
+    incus_host:
+      hosts:
+        srv1:
+          ansible_host: 77.42.126.122
+          ansible_user: sysop
+
+    infra_vm:
+      hosts:
+        infra:
+          ansible_host: 100.122.246.112
+          ansible_user: sysop
+          ansible_ssh_common_args: "-o ProxyJump=srv1"
+
+    enterprise_vm:
+      hosts:
+        enterprise:
+          ansible_host: 100.81.49.91
+          ansible_user: sysop
+          ansible_ssh_common_args: "-o ProxyJump=srv1"
+
+    dev_vm:
+      hosts:
+        dev:
+          ansible_host: 100.109.15.31
+          ansible_user: sysop
+          ansible_ssh_common_args: "-o ProxyJump=srv1"
+
+  vars:
+    ansible_python_interpreter: /usr/bin/python3

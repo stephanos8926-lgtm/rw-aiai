@@ -1,0 +1,34 @@
+---
+# dev VM vars
+workspaces:
+  - NexusAgent
+  - ast-tools
+  - RW_InferenceEngine
+
+hermes_worker_config: |
+  # Hermes configuration — dev worker VM
+  # Deployed and managed by rw_aiai/ansible
+
+  model:
+    provider: openrouter
+    model: deepseek/deepseek-v4-flash
+    temperature: 0.3
+
+  aux:
+    compression:
+      enabled: true
+      threshold: 0.75
+      target_ratio: 0.5
+
+  plugins:
+    enabled:
+      - rw-ast-tools
+      - rapidwebs-subagent-retry
+      - rapidwebs-worktree-worker
+
+  context:
+    engine: lcm
+    lcm:
+      mode: sliding
+      max_tokens: 32000
+      reserve_for_response: 4000

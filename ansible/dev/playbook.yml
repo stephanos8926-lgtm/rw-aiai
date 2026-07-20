@@ -1,0 +1,116 @@
+---
+# dev VM — Development services, Hermes worker, ast-tools
+# Tailscale: 100.109.15.31
+# Roles: Hermes worker agent, ast-tools MCP server, RW_InferenceEngine
+
+- name: Provision dev VM
+  hosts: dev_vm
+  become: yes
+  vars_files:
+    - vars.yml
+
+  roles:
+    - common
+
+  tasks:
+    - name: Install development tooling
+      apt:
+        name:
+          - build-essential
+          - python3-dev
+          - python3-venv
+          - pkg-config
+          - fuse3
+          - sshfs
+        state: present
+
+    - name: Install Rust (via rustup for sysop)
+      become_user: sysop
+      shell: |
+        if ! command -v cargo &>/dev/null; then
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        fi
+      args:
+        creates: ~sysop/.cargo/bin/cargo
+
+    - name: Install uv
+      become_user: sysop
+      shell: |
+        if ! command -v uv &>/dev/null; then
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+        fi
+      args:
+        creates: ~sysop/.local/bin/uv
+
+    - name: Clone rw-workspaces (NexusAgent, ast-tools, etc.)
+      become_user: sysop
+      git:
+        repo: "https://github.com/stephanos8926-lgtm/{{ item }}.git"
+        dest: "~sysop/Workspaces/{{ item }}"
+        version: main
+        depth: 1
+      loop: "{{ workspaces }}"
+
+    - name: Create ast-tools systemd user service
+      become_user: sysop
+      copy:
+        dest: ~sysop/.config/systemd/user/rw-ast-tools.service
+        content: |
+          [Unit]
+          Description=rw-ast-tools MCP server (UDS)
+          After=network.target
+
+          [Service]
+          Type=simple
+          ExecStart=%h/Workspaces/ast-tools/.venv/bin/python -m ast_tools.server
+          WorkingDirectory=%h/Workspaces/ast-tools
+          Restart=on-failure
+          RestartSec=5
+          MemoryMax=1G
+
+          [Install]
+          WantedBy=default.target
+        mode: "0644"
+
+    - name: Create RW_InferenceEngine systemd user service
+      become_user: sysop
+      copy:
+        dest: ~sysop/.config/systemd/user/rw-inference.service
+        content: |
+          [Unit]
+          Description=RW Inference Engine (port 8300)
+          After=network.target
+
+          [Service]
+          Type=simple
+          ExecStart=%h/Workspaces/RW_InferenceEngine/.venv/bin/python -m rw_inference.server
+          WorkingDirectory=%h/Workspaces/RW_InferenceEngine
+          Restart=on-failure
+          RestartSec=10
+
+          [Install]
+          WantedBy=default.target
+        mode: "0644"
+
+    - name: Deploy Hermes worker config
+      become_user: sysop
+      copy:
+        dest: ~sysop/.hermes/config.yaml
+        content: "{{ hermes_worker_config }}"
+        mode: "0644"
+
+    - name: Ensure Hermes worker services enabled
+      become_user: sysop
+      systemd:
+        name: "{{ item }}"
+        scope: user
+        enabled: yes
+        state: started
+      loop:
+        - rw-ast-tools
+        - rw-inference
+
+  handlers:
+    - name: daemon-reload
+      systemd:
+        daemon_reload: yes

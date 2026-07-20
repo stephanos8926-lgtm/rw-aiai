@@ -1,0 +1,20 @@
+[project]
+name = "rw-aiai"
+version = "0.1.0"
+description = "RapidWebs Automated Infrastructure AI Agent — IaC + backup + self-healing"
+requires-python = ">=3.12"
+dependencies = [
+    "langgraph>=0.4",
+    "langchain-core>=0.3",
+    "pyyaml>=6.0",
+    "cryptography>=42.0",
+]
+
+[project.scripts]
+rw-aiai-backup = "rw_aiai.backup.pipeline:main"
+rw-aiai-supervisor = "rw_aiai.supervisor.agent:main"
+rw-aiai-drift = "rw_aiai.iac.drift:main"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

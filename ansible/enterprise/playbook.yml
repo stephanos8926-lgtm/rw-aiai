@@ -1,0 +1,60 @@
+---
+# enterprise VM — Application workloads
+# Tailscale: 100.81.49.91
+# Roles: Application containers via Podman
+
+- name: Provision enterprise VM
+  hosts: enterprise_vm
+  become: yes
+  vars_files:
+    - vars.yml
+
+  roles:
+    - common
+
+  tasks:
+    - name: Install podman
+      apt:
+        name: podman
+        state: present
+
+    - name: Ensure enterprise app directories exist
+      file:
+        path: "/home/sysop/{{ item }}"
+        state: directory
+        mode: "0755"
+        owner: sysop
+        group: sysop
+      loop:
+        - enterprise-apps
+        - enterprise-data
+        - enterprise-config
+
+    - name: Deploy enterprise app systemd service (placeholder)
+      copy:
+        dest: /etc/systemd/system/enterprise-app.service
+        content: |
+          [Unit]
+          Description=RapidWebs Enterprise Application
+          After=network.target
+
+          [Service]
+          Type=simple
+          User=sysop
+          WorkingDirectory=/home/sysop/enterprise-apps
+          ExecStart=/usr/bin/podman run --rm --name enterprise-app \
+            -v /home/sysop/enterprise-data:/data:Z \
+            -v /home/sysop/enterprise-config:/config:Z \
+            docker.io/library/alpine:latest sleep infinity
+          Restart=always
+          RestartSec=10
+
+          [Install]
+          WantedBy=multi-user.target
+        mode: "0644"
+      notify: daemon-reload
+
+  handlers:
+    - name: daemon-reload
+      systemd:
+        daemon_reload: yes

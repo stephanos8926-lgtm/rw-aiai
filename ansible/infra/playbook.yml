@@ -1,0 +1,119 @@
+---
+# infra VM — Infrastructure services
+# Tailscale: 100.122.246.112
+# Roles: PG16, Caddy reverse proxy, agentgateway LLM router, Hermes gateway
+
+- name: Provision infra VM
+  hosts: infra_vm
+  become: yes
+  vars_files:
+    - vars.yml
+
+  roles:
+    - common
+
+  tasks:
+    - name: Install PostgreSQL 16
+      apt:
+        name:
+          - postgresql-16
+          - postgresql-client-16
+          - postgresql-16-pgvector
+        state: present
+
+    - name: Ensure PG is running
+      systemd:
+        name: postgresql
+        state: started
+        enabled: yes
+
+    - name: Install Caddy
+      apt:
+        name: caddy
+        state: present
+
+    - name: Deploy Caddyfile
+      copy:
+        dest: /etc/caddy/Caddyfile
+        content: "{{ caddyfile }}"
+        mode: "0644"
+      notify: reload caddy
+
+    - name: Ensure Caddy running
+      systemd:
+        name: caddy
+        state: started
+        enabled: yes
+
+    - name: Install podman
+      apt:
+        name: podman
+        state: present
+
+    - name: Create agentgateway systemd service
+      copy:
+        dest: /etc/systemd/system/agentgateway.service
+        content: |
+          [Unit]
+          Description=agentgateway LLM router
+          After=network.target
+
+          [Service]
+          Type=simple
+          User=sysop
+          ExecStart=/usr/bin/podman run --rm --name agentgateway \
+            -p 8080:8080 \
+            -v /home/sysop/agentgateway:/config:Z \
+            ghcr.io/stephanos8926-lgtm/agentgateway:latest
+          Restart=always
+          RestartSec=10
+
+          [Install]
+          WantedBy=multi-user.target
+        mode: "0644"
+      notify: daemon-reload
+
+    - name: Ensure Hermes gateway running (systemd user service)
+      become_user: sysop
+      block:
+        - name: Create Hermes gateway systemd user service dir
+          file:
+            path: ~sysop/.config/systemd/user
+            state: directory
+            mode: "0755"
+
+        - name: Deploy Hermes gateway service
+          copy:
+            dest: ~sysop/.config/systemd/user/hermes-gateway.service
+            content: |
+              [Unit]
+              Description=Hermes Agent Gateway
+              After=network.target
+
+              [Service]
+              Type=simple
+              ExecStart=%h/.hermes/hermes-agent/.venv/bin/python -m hermes_cli.main gateway run
+              WorkingDirectory=%h/.hermes/hermes-agent
+              Restart=on-failure
+              RestartSec=15
+
+              [Install]
+              WantedBy=default.target
+            mode: "0644"
+
+        - name: Enable Hermes gateway user service
+          systemd:
+            name: hermes-gateway
+            scope: user
+            enabled: yes
+            state: started
+
+  handlers:
+    - name: reload caddy
+      systemd:
+        name: caddy
+        state: reloaded
+
+    - name: daemon-reload
+      systemd:
+        daemon_reload: yes

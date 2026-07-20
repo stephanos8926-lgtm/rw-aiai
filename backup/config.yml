@@ -1,0 +1,46 @@
+# Backup pipeline configuration
+
+# Mount point for the dedicated backup volume on the host
+backup_root: /mnt/vdrive/backups
+
+# How long to keep backups
+retention:
+  daily: 7
+  weekly: 4
+  monthly: 3
+
+incus_host: srv1
+backup_user: sysop
+
+vms:
+  infra:
+    type: incremental
+    host: 100.122.246.112
+    paths:
+      - /etc
+      - /home/sysop
+      - /var/lib/postgresql
+      - /var/log
+    pre_hook: "systemctl stop postgresql"
+    post_hook: "systemctl start postgresql"
+
+  enterprise:
+    type: incremental
+    host: 100.81.49.91
+    paths:
+      - /etc
+      - /home/sysop
+      - /var/log
+
+  dev:
+    type: snapshot
+    host: 100.109.15.31
+    # Simple Incus snapshot strategy — no pre/post hooks needed
+
+notification:
+  platform: telegram
+  channel: "Home"
+  on_success: false
+  on_warning: true
+  on_error: true
+  on_escalation: true
