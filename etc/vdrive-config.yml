@@ -1,0 +1,21 @@
+# vdrive-manager configuration
+# Maps virtual drives to mount points and controls remote backup sync.
+
+vdrives:
+  backup:
+    image_path: /vdrive/backup.img
+    mount_point: /mnt/vdrive
+    size: 20G                  # initial sparse size
+    filesystem: btrfs          # btrfs (snapshots, compression, checksums)
+    compression: zstd          # btrfs mount compression level
+    auto_grow: true            # grow image if disk usage > 80%
+
+remote_backup:
+  enabled: false               # toggle remote sync on/off
+  target_host: rw-workstation-01
+  target_user: sysop
+  target_path: /mnt/remote_backups
+  method: rsync                # transport method
+  bandwidth_limit: 0           # 0 = unlimited, or KB/s
+  schedule: "0 4 * * *"        # cron expression (daily 4am)
+  slots: 2                     # number of rotation slots on target

@@ -1,0 +1,9 @@
+[Unit]
+Description=vdrive-manager — daily maintenance (grow + trim)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/vdrive-manager grow
+ExecStart=/usr/local/bin/vdrive-manager trim
+StandardOutput=journal
+StandardError=journal

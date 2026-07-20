@@ -1,0 +1,9 @@
+[Unit]
+Description=vdrive-sync — pull remote backup with slot rotation
+Documentation=https://github.com/stephanos8926-lgtm/rw-aiai
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/vdrive-sync sync
+StandardOutput=journal
+StandardError=journal

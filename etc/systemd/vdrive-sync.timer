@@ -1,0 +1,11 @@
+[Unit]
+Description=vdrive-manager — daily remote backup sync
+Documentation=https://github.com/stephanos8926-lgtm/rw-aiai
+
+[Timer]
+OnCalendar=04:00
+Persistent=true
+RandomizedDelaySec=30m
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,10 @@
+[Unit]
+Description=vdrive-manager — remote backup sync (push to workstation)
+Documentation=https://github.com/stephanos8926-lgtm/rw-aiai
+ConditionPathExists=/etc/vdrive/config.yml
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/vdrive-manager sync
+StandardOutput=journal
+StandardError=journal

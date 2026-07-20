@@ -1,0 +1,6 @@
+# vdrive-sync configuration — workstation side
+# rsync source and slot rotation settings.
+
+source: sysop@srv1:/vdrive/backup.img
+slots_dir: /mnt/remote_backups
+slots: 2

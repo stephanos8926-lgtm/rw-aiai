@@ -1,0 +1,107 @@
+---
+# host — srv1 (Hetzner CX32 bare metal / Incus host)
+# Roles: vdrive manager, backup pipeline, remote sync
+
+- name: Provision host (srv1)
+  hosts: incus_host
+  become: yes
+  vars_files:
+    - vars.yml
+
+  roles:
+    - common
+
+  tasks:
+    - name: Install btrfs tools
+      apt:
+        name:
+          - btrfs-progs
+          - python3-yaml
+        state: present
+
+    - name: Deploy vdrive-manager script
+      copy:
+        src: ../scripts/vdrive-manager.sh
+        dest: /usr/local/bin/vdrive-manager
+        mode: "0755"
+        owner: root
+        group: root
+
+    - name: Ensure /vdrive directory
+      file:
+        path: /vdrive
+        state: directory
+        mode: "0755"
+
+    - name: Ensure /etc/vdrive directory
+      file:
+        path: /etc/vdrive
+        state: directory
+        mode: "0755"
+
+    - name: Deploy vdrive config
+      copy:
+        src: ../etc/vdrive-config.yml
+        dest: /etc/vdrive/config.yml
+        mode: "0644"
+
+    - name: Deploy vdrive systemd units
+      copy:
+        src: "../etc/systemd/{{ item }}"
+        dest: "/etc/systemd/system/{{ item }}"
+        mode: "0644"
+      loop:
+        - vdrive-manager.service
+        - vdrive-maintenance.service
+        - vdrive-maintenance.timer
+        - vdrive-sync.service
+        - vdrive-sync.timer
+      notify: daemon-reload
+
+    - name: Create mount point for vdrive
+      file:
+        path: /mnt/vdrive
+        state: directory
+        mode: "0755"
+
+    - name: Enable vdrive-manager (mounts @boot)
+      systemd:
+        name: vdrive-manager.service
+        enabled: yes
+        state: started
+
+    - name: Enable vdrive-maintenance timer
+      systemd:
+        name: vdrive-maintenance.timer
+        enabled: yes
+        state: started
+
+    - name: Enable vdrive-sync timer (if remote backup enabled)
+      systemd:
+        name: vdrive-sync.timer
+        enabled: yes
+        state: started
+      when: remote_backup_enabled | default(false)
+
+    - name: Create backup directory structure
+      file:
+        path: "/mnt/vdrive/backups/{{ item }}"
+        state: directory
+        mode: "0755"
+        owner: sysop
+        group: sysop
+      loop:
+        - infra
+        - enterprise
+        - dev
+        - audit
+
+    - name: Install rw_aiai Python package
+      pip:
+        name: git+https://github.com/stephanos8926-lgtm/rw-aiai.git
+        state: latest
+
+  handlers:
+    - name: daemon-reload
+      systemd:
+        daemon_reload: yes

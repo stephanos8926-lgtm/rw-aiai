@@ -1,0 +1,11 @@
+[Unit]
+Description=vdrive-manager — periodic maintenance (grow, trim)
+Documentation=https://github.com/stephanos8926-lgtm/rw-aiai
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target
