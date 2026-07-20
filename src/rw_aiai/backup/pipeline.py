@@ -191,7 +191,7 @@ def _backup_incremental(vm_name: str, vm_cfg: dict, cfg: dict) -> None:
     try:
         # Run backup (init is handled by the vdrive provision script)
         result = _run_cmd(
-            ["restic", "-r", repo, "--verbose", "--exclude-caches", "backup"] + paths,
+            ["restic", "-r", repo, "--verbose", "backup", "--exclude-caches"] + paths,
             timeout=3600,
         )
         if result.returncode != 0:
