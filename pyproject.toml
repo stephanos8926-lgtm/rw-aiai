@@ -11,6 +11,7 @@ dependencies = [
 ]
 
 [project.scripts]
+rwa = "rw_aiai.cli:main"
 rw-aiai-backup = "rw_aiai.backup.pipeline:main"
 rw-aiai-supervisor = "rw_aiai.supervisor.agent:main"
 rw-aiai-drift = "rw_aiai.iac.drift:main"
