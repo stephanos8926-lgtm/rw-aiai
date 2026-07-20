@@ -1,5 +1,4 @@
-"""
-rw_aiai.backup.pipeline — LangGraph-driven backup pipeline.
+"""rw_aiai.backup.pipeline — LangGraph-driven backup pipeline.
 
 Nodes:
   load_config → for each VM (pre_hook → backup → post_hook → verify)
@@ -10,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 import sys
 import time
@@ -102,6 +102,18 @@ def _ensure_backup_root(path: str) -> Path:
     return p
 
 
+def _restic_env(repo: str) -> dict:
+    """Build environment dict with restic password for a given repo."""
+    key_file = Path("/root/vdrive-backup-key")
+    if key_file.exists():
+        password = key_file.read_text().strip()
+    else:
+        # Fallback: try user home
+        key_file = Path.home() / ".config/vdrive/backup-key"
+        password = key_file.read_text().strip() if key_file.exists() else ""
+    return {**os.environ, "RESTIC_PASSWORD": password}
+
+
 # ─── LangGraph Nodes ─────────────────────────────────────────────────────────
 
 
@@ -163,6 +175,7 @@ def _backup_incremental(vm_name: str, vm_cfg: dict, cfg: dict) -> None:
     repo = f"{backup_root}/{vm_name}"
     host = vm_cfg["host"]
     paths = vm_cfg["paths"]
+    env = _restic_env(repo)
 
     # Pre-hook
     pre = vm_cfg.get("pre_hook")
@@ -170,21 +183,9 @@ def _backup_incremental(vm_name: str, vm_cfg: dict, cfg: dict) -> None:
         _run_cmd(["ssh", host, pre], timeout=120)
 
     try:
-        # Init repo if needed
-        _run_cmd(
-            ["restic", "-r", repo, "init", "--repository-version", "2"],
-            timeout=30,
-        )
-
-        # Run backup
+        # Run backup (init is handled by the vdrive provision script)
         result = _run_cmd(
-            [
-                "restic",
-                "-r", repo,
-                "--verbose",
-                "--exclude-caches",
-                "backup",
-            ] + paths,
+            ["restic", "-r", repo, "--verbose", "--exclude-caches", "backup"] + paths,
             timeout=3600,
         )
         if result.returncode != 0:
@@ -217,6 +218,7 @@ def node_prune(state: PipelineState) -> PipelineState:
     for vm_name, vm_cfg in cfg["vms"].items():
         if vm_cfg["type"] == "incremental":
             repo = f"{cfg['backup_root']}/{vm_name}"
+            env = _restic_env(repo)
             _run_cmd(
                 [
                     "restic", "-r", repo, "forget",
@@ -228,7 +230,6 @@ def node_prune(state: PipelineState) -> PipelineState:
                 timeout=600,
             )
         elif vm_cfg["type"] == "snapshot":
-            # Prune incus snapshots: keep last N
             host = cfg["incus_host"]
             keep = max(retention["daily"], retention["weekly"], retention["monthly"])
             result = _run_cmd(
@@ -274,19 +275,12 @@ def node_write_audit(state: PipelineState) -> PipelineState:
 
 
 def node_check_audit(state: PipelineState) -> PipelineState:
-    """Check the audit for errors and warnings.
-
-    Returns Command(goto=...) to route to the right next node.
-    """
-    # If there are things that can be auto-retried, we could loop
-    # For now: any error → escalate, everything ok → END
+    """Check the audit for errors and warnings."""
     return state
 
 
 def node_escalate(state: PipelineState) -> PipelineState:
     """Escalate to the user via notification."""
-    # In production, this sends a Telegram message
-    # For now, print a clear error report
     print("=" * 60)
     print(f"BACKUP PIPELINE — {state['pipeline_status'].upper()}")
     print("=" * 60)
@@ -307,14 +301,9 @@ def node_escalate(state: PipelineState) -> PipelineState:
 
 
 def build_pipeline(config: dict) -> StateGraph:
-    """Build the LangGraph backup pipeline.
-
-    The graph dynamically creates backup nodes per VM, then chains
-    prune → audit → check → route.
-    """
+    """Build the LangGraph backup pipeline."""
     workflow = StateGraph(PipelineState)
 
-    # Add nodes
     workflow.add_node("load_config", node_load_config)
 
     for vm_name in config["vms"]:
@@ -328,22 +317,18 @@ def build_pipeline(config: dict) -> StateGraph:
     workflow.add_node("check_audit", node_check_audit)
     workflow.add_node("escalate", node_escalate)
 
-    # Edges
     workflow.set_entry_point("load_config")
 
-    # Load config → all backup nodes in parallel
     prev = "load_config"
     for vm_name in config["vms"]:
         workflow.add_edge(prev, f"backup_{vm_name}")
 
-    # All backup nodes → prune
     for vm_name in config["vms"]:
         workflow.add_edge(f"backup_{vm_name}", "prune")
 
     workflow.add_edge("prune", "write_audit")
     workflow.add_edge("write_audit", "check_audit")
 
-    # Conditional routing from check_audit
     def route_from_check(state: PipelineState) -> Literal["escalate", "__end__"]:
         if state["pipeline_status"] == "error":
             return "escalate"
