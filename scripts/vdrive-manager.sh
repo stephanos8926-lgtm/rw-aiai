@@ -13,9 +13,17 @@
 set -euo pipefail
 
 CONFIG="${VDRIBE_CONFIG:-/etc/vdrive/config.yml}"
-LOGFILE="/var/log/vdrive-manager.log"
+LOGFILE="${VDRIBE_LOG:-/tmp/vdrive-manager.log}"
 
-log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOGFILE"; }
+log() { 
+    if [ -p /dev/stdin ] && [ ! -t 0 ]; then
+        while IFS= read -r line; do
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] $line" | tee -a "$LOGFILE"
+        done
+    else
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOGFILE"
+    fi
+}
 
 # ─── Config helpers ──────────────────────────────────────────────────────────
 
@@ -175,7 +183,7 @@ cmd_sync() {
         target="$user@$host:$path/$image_name"
         
         log "Syncing $image_path → $target"
-        rsync -avz --progress $bw_arg -e ssh "$image_path" "$target" 2>&1 | tail -3 | log
+        rsync -avz --sparse -e ssh "$image_path" "$target" 2>&1 | log
         log "✅ $image_name synced"
     done
 }

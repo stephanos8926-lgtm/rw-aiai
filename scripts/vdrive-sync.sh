@@ -17,10 +17,18 @@
 set -euo pipefail
 
 CONFIG="${VDRIBE_SYNC_CONFIG:-/etc/vdrive/sync-config.yml}"
-LOGFILE="${VDRIBE_LOG:-/var/log/vdrive-sync.log}"
+LOGFILE="${VDRIBE_LOG:-/tmp/vdrive-sync.log}"
 SLOTS_DIR="${VDRIBE_SLOTS_DIR:-/mnt/remote_backups}"
 
-log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOGFILE"; }
+log() { 
+    if [ -p /dev/stdin ] && [ ! -t 0 ]; then
+        while IFS= read -r line; do
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] $line" | tee -a "$LOGFILE"
+        done
+    else
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOGFILE"
+    fi
+}
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -60,39 +68,12 @@ ensure_slots_dir() {
     done
 }
 
-files_identical() {
-    local a="$1" b="$2"
-    if [ ! -f "$a" ] || [ ! -f "$b" ]; then
-        return 1  # not identical if one doesn't exist
-    fi
-    # Fast check: compare sizes first, then hash
-    local size_a=$(stat -c%s "$a" 2>/dev/null || echo 0)
-    local size_b=$(stat -c%s "$b" 2>/dev/null || echo 0)
-    [ "$size_a" -ne "$size_b" ] && return 1
-    
-    # Content comparison via checksum
-    local hash_a=$(sha256sum "$a" | cut -d' ' -f1)
-    local hash_b=$(sha256sum "$b" | cut -d' ' -f1)
-    [ "$hash_a" = "$hash_b" ]
-}
-
-check_disk_space() {
-    local available=$(df --output=avail "$SLOTS_DIR" | tail -1)
-    local pcent=$(df --output=pcent "$SLOTS_DIR" | tail -1 | tr -d ' %')
-    if [ "$pcent" -gt 90 ]; then
-        log "⚠️  Low disk space: ${pcent}% used (${available}K available)"
-        return 1
-    fi
-    return 0
-}
-
 # ─── Main sync + rotation ────────────────────────────────────────────────────
 
 do_sync() {
     local source="$1"
     local slot_1="$(get_slot_path 1)"
     local slot_2="$(get_slot_path 2)"
-    local temp_file="$SLOTS_DIR/.sync-incoming.img"
     
     log "=== vdrive sync start ==="
     log "Source: $source"
@@ -101,37 +82,29 @@ do_sync() {
     ensure_slots_dir
     
     # Check disk space before pulling
-    if ! check_disk_space; then
-        log "ERROR: Insufficient disk space for sync"
+    local available_pcent=$(df --output=pcent "$SLOTS_DIR" 2>/dev/null | tail -1 | tr -d ' %')
+    if [ "${available_pcent:-0}" -gt 90 ]; then
+        log "ERROR: Insufficient disk space (${available_pcent}% used)"
         return 1
     fi
     
     # Pull the vdrive image from server
     log "Pulling from $source..."
-    rsync -avz --progress -e ssh "$source" "$temp_file" 2>&1 | tail -2 | log
+    rsync -avz --sparse -e ssh "$source" "$(get_slot_path 1)/backup.img.incoming" 2>&1 | log
     
-    if [ ! -f "$temp_file" ]; then
+    local incoming="$(get_slot_path 1)/backup.img.incoming"
+    if [ ! -f "$incoming" ]; then
         log "ERROR: Pull failed — no file received"
         return 1
     fi
     
-    local received_size=$(stat -c%s "$temp_file")
-    log "Received: $(numfmt --to=iec "$received_size" 2>/dev/null || echo "$received_size bytes")"
+    local received_blocks=$(stat -c%b "$incoming" 2>/dev/null || echo 0)
+    local received_real=$(( received_blocks * 512 ))
+    log "Received: $(numfmt --to=iec "$received_real" 2>/dev/null || echo "$received_real bytes") actual"
     
-    # Check if slot_1 has the same content
+    # Rotate: slot_1 → slot_2, incoming → slot_1
     local slot_1_file="$slot_1/backup.img"
     
-    if [ -f "$slot_1_file" ] && files_identical "$temp_file" "$slot_1_file"; then
-        log "Content unchanged — removing temp file, no rotation needed"
-        rm -f "$temp_file"
-        echo "✅ No change — backup already current"
-        return 0
-    fi
-    
-    # Content differs — perform rotation
-    log "Backup changed — rotating slots..."
-    
-    # Shift slot_1 → slot_2 (overwrite old slot_2)
     if [ -f "$slot_1_file" ]; then
         local slot_2_file="$slot_2/backup.img"
         mkdir -p "$slot_2"
@@ -139,21 +112,18 @@ do_sync() {
         mv -f "$slot_1_file" "$slot_2_file"
     fi
     
-    # Move new backup into slot_1
     log "  Installing new backup → slot_1"
-    mv "$temp_file" "$slot_1_file"
+    mv "$incoming" "$slot_1_file"
     
-    # Log rotation
     log "✅ Rotation complete"
-    log "  slot_1: $(stat -c%s "$slot_1_file" 2>/dev/null | numfmt --to=iec 2>/dev/null || echo '?')"
+    log "  slot_1: $(du -h "$slot_1_file" | cut -f1)"
     if [ -f "$slot_2/backup.img" ]; then
-        log "  slot_2: $(stat -c%s "$slot_2/backup.img" 2>/dev/null | numfmt --to=iec 2>/dev/null || echo '?')"
+        log "  slot_2: $(du -h "$slot_2/backup.img" | cut -f1)"
     else
         log "  slot_2: (empty)"
     fi
     
-    # Verify
-    if [ ! -f "$slot_1/backup.img" ]; then
+    if [ ! -f "$slot_1_file" ]; then
         log "ERROR: slot_1 is empty after rotation!"
         return 1
     fi
@@ -183,7 +153,10 @@ cmd_status() {
         fi
     done
     echo ""
-    check_disk_space || true
+    local pcent=$(df --output=pcent "$SLOTS_DIR" 2>/dev/null | tail -1 | tr -d ' %')
+    if [ "${pcent:-0}" -gt 90 ]; then
+        echo "⚠️  Low disk space: ${pcent}% used"
+    fi
 }
 
 # ─── CLI ─────────────────────────────────────────────────────────────────────
